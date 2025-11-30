@@ -1,25 +1,9 @@
-#!/usr/bin/env python3
-"""
-Hamming code simulator for teaching / lab tasks.
-
-Features:
-- choose minimal Hamming code (n,m) given alphabet size
-- map alphabet -> fixed-length binary words
-- encode each symbol into Hamming codeword (systematic, parity bits at positions 1,2,4,8,...)
-- flip a bit in any codeword (by index or randomly)
-- detect and correct single-bit errors, report positions
-- decode corrected codewords back to message
-"""
-
 from typing import List, Tuple, Dict, Optional
 import math
 import secrets
 
-
-# ---------- Utility functions ----------
-
 def ceil_log2(x: int) -> int:
-    """Minimal number of bits to represent x distinct values (ceil(log2(x)))."""
+    """Минимальное число бит для представления x значений (ceil(log2))"""
     if x <= 1:
         return 1
     return math.ceil(math.log2(x))
@@ -27,8 +11,8 @@ def ceil_log2(x: int) -> int:
 
 def choose_hamming_code_for_m(m_required: int) -> Tuple[int, int, int]:
     """
-    Choose minimal k such that 2^k - 1 has m >= m_required informational bits.
-    Returns (k, n, m) where n = 2^k - 1, m = n - k.
+    Выбирает минимальное k такое, что n=2^k-1, m=n-k >= m_required
+    Возвращает (k, n, m).
     """
     k = 1
     while True:
@@ -40,25 +24,19 @@ def choose_hamming_code_for_m(m_required: int) -> Tuple[int, int, int]:
 
 
 def is_power_of_two(x: int) -> bool:
+    """Проверка, является ли число степенью двойки"""
     return x != 0 and (x & (x - 1)) == 0
 
 
-# ---------- Hamming core: encode / decode ----------
-
 def make_empty_codeword(n: int) -> List[int]:
-    """
-    Return list of length n+1 (1-based indexing, index 0 unused) with zeros.
-    We will use indices 1..n.
-    """
+    """Пустое кодовое слово длины n (1-based, индекс 0 не используется)"""
     return [0] * (n + 1)
 
 
 def place_data_bits_into_codeword(data_bits: List[int], n: int) -> List[int]:
     """
-    Place data bits (list of 0/1) into positions that are NOT powers of two.
-    data_bits should be length m (<= available positions). We fill in increasing index order:
-    the first bit in data_bits goes to the lowest-numbered data position.
-    Returns codeword list (1-based).
+    Вставляет информационные биты в позиции, которые не являются степенью двойки
+    Возвращает кодовое слово (1-based).
     """
     code = make_empty_codeword(n)
     data_pos = 0
@@ -74,27 +52,25 @@ def place_data_bits_into_codeword(data_bits: List[int], n: int) -> List[int]:
 
 def compute_parity_bits(code: List[int], k: int) -> None:
     """
-    Compute parity bits in-place for code (1-based list).
-    Parity bit at position p = 2^(j) controls positions i where (i & p) != 0.
-    We set parity such that total parity (including parity bit itself) is even.
+    Вычисляет контрольные биты (чётность) и записывает их в код (in-place)
+    Каждый бит p=2^j контролирует блоки по p бит
     """
     n = len(code) - 1
     for j in range(k):
-        p = 1 << j  # parity position
+        p = 1 << j  # позиция контрольного бита
         s = 0
         i = p
-        # iterate positions controlled by p: start at p, take p bits, skip p bits, ...
+        # цикл: берём p бит, пропускаем p бит и т.д.
         while i <= n:
-            # sum block of length p
             for q in range(i, min(i + p, n + 1)):
                 if q != p:
-                    s ^= code[q]  # xor for parity (mod 2)
+                    s ^= code[q]  # XOR — сумма по mod2
             i += 2 * p
-        code[p] = s  # set parity so that overall parity is s ^ code[p] == 0 -> code[p] = s
+        code[p] = s
 
 
 def encode_data_bits_to_codeword(data_bits: List[int], k: int) -> List[int]:
-    """Given data bits and number of parity bits k, produce full Hamming codeword (1-based list)."""
+    """Формирует полное кодовое слово Хэмминга по data_bits и k контрольным битам"""
     n = (1 << k) - 1
     code = place_data_bits_into_codeword(data_bits, n)
     compute_parity_bits(code, k)
@@ -103,10 +79,8 @@ def encode_data_bits_to_codeword(data_bits: List[int], k: int) -> List[int]:
 
 def syndrome_of_codeword(code: List[int], k: int) -> int:
     """
-    Compute syndrome (integer) for the received codeword.
-    syndrome = sum( j-th parity mismatch ? 2^(j) : 0 )
-    If syndrome == 0 -> no errors detected.
-    If syndrome != 0 -> that is the 1-based index of incorrect bit.
+    Вычисляет синдром (число). 0 — ошибок нет, иначе — позиция ошибочного бита.
+    Возвращает целое от 0 до n.
     """
     n = len(code) - 1
     syn = 0
@@ -120,31 +94,28 @@ def syndrome_of_codeword(code: List[int], k: int) -> int:
             i += 2 * p
         if s != 0:
             syn |= p
-    return syn  # 0..n
+    return syn
 
 
 def correct_codeword(code: List[int], k: int) -> Tuple[List[int], Optional[int]]:
     """
-    Compute syndrome and correct single-bit error if present.
-    Returns (corrected_code, error_position or None).
-    Mutates a shallow copy and returns it (original not changed).
+    Вычисляет синдром и, если синдром != 0 и в диапазоне, исправляет один бит.
+    Возвращает (исправленное_слово, позиция_ошибки или None).
     """
-    code_copy = code[:]  # copy
+    code_copy = code[:]  # копия, чтобы не менять исходник
     syn = syndrome_of_codeword(code_copy, k)
     if syn == 0:
         return code_copy, None
     n = len(code_copy) - 1
     if 1 <= syn <= n:
-        # flip that bit
-        code_copy[syn] ^= 1
+        code_copy[syn] ^= 1  # инвертируем бит
         return code_copy, syn
     else:
-        # syndrome out of range -> cannot correct
         return code_copy, syn
 
 
 def extract_data_bits_from_codeword(code: List[int], k: int) -> List[int]:
-    """Return list of data bits (in the same order they were placed)."""
+    """Извлекает информационные биты из кодового слова (в исходном порядке)"""
     n = len(code) - 1
     data = []
     for i in range(1, n + 1):
@@ -153,47 +124,40 @@ def extract_data_bits_from_codeword(code: List[int], k: int) -> List[int]:
     return data
 
 
-# ---------- Alphabet mapping ----------
-
 def build_alphabet_mapping(alphabet: List[str]) -> Dict[str, int]:
-    """
-    Map each symbol in alphabet to integer index 0..len(alphabet)-1.
-    """
+    """Строит отображение символ -> индекс (0..len-1)"""
     return {ch: idx for idx, ch in enumerate(alphabet)}
 
 
 def int_to_bits(x: int, length: int) -> List[int]:
-    """Convert integer x to list of bits length 'length' (MSB first)."""
+    """Преобразует целое x в список бит длины length (MSB первым)"""
     bits = [(x >> (length - 1 - i)) & 1 for i in range(length)]
     return bits
 
 
 def bits_to_int(bits: List[int]) -> int:
-    """Convert list of bits (MSB first) to integer."""
+    """Преобразует список бит (MSB первым) в целое"""
     x = 0
     for b in bits:
         x = (x << 1) | (b & 1)
     return x
 
 
-# ---------- High-level functions: encode message, corrupt, decode ----------
-
 def encode_message_with_hamming(message: str, alphabet: List[str]) -> Tuple[List[List[int]], Dict]:
     """
-    Encode a text message (string of symbols from alphabet) into list of Hamming codewords (1-based lists).
-    Returns (list_of_codewords, info) where info contains mapping and parameters.
+    Кодирует строку посимвольно в список кодовых слов Хэмминга.
+    Возвращает (codewords, info) с параметрами и отображением
     """
     mapping = build_alphabet_mapping(alphabet)
     alph_size = len(alphabet)
-    symbol_bits = ceil_log2(alph_size)  # m_required
+    symbol_bits = ceil_log2(alph_size)  # сколько бит нужно для одного символа
     k, n, m = choose_hamming_code_for_m(symbol_bits)
-    # we will use exactly m bits for data (m >= symbol_bits). When decoding, the top unused data bits should be zeros.
     codewords = []
     for ch in message:
         if ch not in mapping:
             raise ValueError(f"Symbol '{ch}' not in alphabet")
         val = mapping[ch]
-        data_bits_full = int_to_bits(val, m)  # MSB first
+        data_bits_full = int_to_bits(val, m)
         cw = encode_data_bits_to_codeword(data_bits_full, k)
         codewords.append(cw)
     info = {"alphabet": alphabet, "mapping": mapping, "symbol_bits": symbol_bits, "k": k, "n": n, "m": m}
@@ -201,14 +165,14 @@ def encode_message_with_hamming(message: str, alphabet: List[str]) -> Tuple[List
 
 
 def flip_bit_in_codeword(codeword: List[int], position: int) -> None:
-    """Flip bit at 1-based position in codeword (mutates the list)."""
+    """Инвертирует бит в кодовом слове по 1-based позиции (меняет список)."""
     if position < 1 or position >= len(codeword):
         raise IndexError("position out of range")
     codeword[position] ^= 1
 
 
 def flip_random_bit_in_codeword(codeword: List[int]) -> int:
-    """Flip a random bit in codeword, return position flipped."""
+    """Инвертирует случайный бит в кодовом слове, возвращает позицию."""
     n = len(codeword) - 1
     pos = secrets.randbelow(n) + 1
     flip_bit_in_codeword(codeword, pos)
@@ -217,12 +181,10 @@ def flip_random_bit_in_codeword(codeword: List[int]) -> int:
 
 def decode_codewords(codewords: List[List[int]], info: Dict) -> Tuple[str, List[Dict]]:
     """
-    Decode list of received codewords. For each word:
-      - compute syndrome, correct single error if present
-      - extract data bits, convert to integer, then to symbol from alphabet
-    Returns (decoded_message_str, report_list)
-    report_list contains dicts with keys: index (0-based), corrected (bool), error_position (int or None),
-    original_codeword, corrected_codeword, data_bits, symbol_index, symbol_char
+    Декодирует список кодовых слов:
+    - исправляет одиночные ошибки,
+    - извлекает данные и восстанавливает символы.
+    Возвращает (строка, отчёт по каждому слову).
     """
     alphabet = info["alphabet"]
     k = info["k"]
@@ -232,12 +194,10 @@ def decode_codewords(codewords: List[List[int]], info: Dict) -> Tuple[str, List[
     out_chars = []
     reports = []
     for idx, rec in enumerate(codewords):
-        # ensure we have a copy
         rec_copy = rec[:]
         corrected, error_pos = correct_codeword(rec_copy, k)
         data_bits = extract_data_bits_from_codeword(corrected, k)
         symbol_val = bits_to_int(data_bits)
-        # if symbol_val >= len(alphabet) -> possibly decoding error (symbol out of alphabet range)
         symbol_char = reverse_map.get(symbol_val, None)
         out_chars.append(symbol_char if symbol_char is not None else "?")
         reports.append({
@@ -252,14 +212,8 @@ def decode_codewords(codewords: List[List[int]], info: Dict) -> Tuple[str, List[
         })
     return "".join(out_chars), reports
 
-
-# ---------- Example / CLI-like demo ----------
-
-def demo():
-    # Пример: русская кириллица без учёта регистра (примерный алфавит 33 символа)
+if __name__ == "__main__":
     rus_alphabet = list("абвгдеёжзийклмнопрстуфхцчшщъыьэюя")
-    # Можно заменить на любой другой список символов, например:
-    # rus_alphabet = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ ")
     alphabet = rus_alphabet
     message = "привет"
     print("Алфавит:", "".join(alphabet))
@@ -272,8 +226,7 @@ def demo():
     for i, cw in enumerate(codewords):
         print(f"{i}: ", "".join(str(b) for b in cw[1:]))
 
-    # Портим некоторые последовательности: вручную или случайно
-    # Пример: испортим 1-й символ в позиции 3 и случайно 3-й символ
+    # Портим некоторые последовательности
     print("\nИскажаем (инвертируем) биты:")
     print(" - инвертируем бит 3 в первом кодовом слове")
     flip_bit_in_codeword(codewords[0], 3)
@@ -293,6 +246,3 @@ def demo():
     for r in reports:
         print(f"Индекс {r['index']}: исправлено={r['corrected']}, error_pos={r['error_position']}, "
               f"symbol_index={r['symbol_index']}, symbol_char={r['symbol_char']}")
-
-if __name__ == "__main__":
-    demo()

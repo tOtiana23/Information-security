@@ -142,12 +142,11 @@ def decrypt_message(cipher_int: int, d: int, n: int) -> str:
 
 if __name__ == "__main__":
     bits = 1024
-    print(f"Генерация ключей с prime_bits = {bits} (для реальной безопасности используйте 2048 или выше)")
+    print(f"Генерация ключей с prime_bits = {bits}")
     keys = generate_keypair(prime_bits=bits, use_random_e=False)
     n, e, d = keys["n"], keys["e"], keys["d"]
     print("Ключи сгенерированы.")
     print("n битность:", n.bit_length(), "e:", e)
-    # Пример шифрования строки
     text = "Привет, RSA!"
     c = encrypt_message(text, e, n)
     print("Шифротекст (int):", c)
